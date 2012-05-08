@@ -1,0 +1,38 @@
+#!/usr/bin/env ruby
+
+THIS_FILE = File.symlink?(__FILE__) ? File.readlink(__FILE__) : __FILE__
+
+require 'optparse'
+require 'rubygems'
+require 'active_support'
+require 'twitter'
+require 'ruby-growl'
+require 'redis'
+
+options = {}
+OptionParser.new do |opts|
+  opts.banner = "Usage: monitor-twitter [options]"
+    
+  opts.on("--from [USERNAME]", "Monitor tweets from this user") do |v|
+    options[:username] = v
+  end
+  
+  opts.on("--keywords [KEYWORDS]", "Keywords to search for, comma separated") do |v|
+    options[:keywords] = v
+  end
+end.parse!
+
+redis = Redis.new
+
+query = ""
+query += "from:#{options[:username]} " if options[:username]
+query += options[:keywords].split(",").join(" OR ")
+
+tweet = Twitter.search(query).first
+last_tweet_id = redis.get('last_tweet_id') || 0
+if tweet && tweet.id > last_tweet_id.to_i
+  redis.set 'last_tweet_id', tweet.id
+  g = Growl.new "localhost", "ruby-growl"
+  g.add_notification "twitter", "ruby-growl Twitter", tweet.profile_image_url
+  g.notify "twitter", "#{tweet.from_user} #{tweet.created_at.to_date}", tweet.text, 0, true
+end
